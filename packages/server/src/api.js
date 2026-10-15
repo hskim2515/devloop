@@ -206,7 +206,7 @@ export function createApi(cfg, store, runner, log = console, insights = null, kn
     await rel().save(p.name, { baseline: null });
     return { ok: true };
   }));
-  app.post('/admin/releases/:project', admin, wrap(async (req) => rel().start(proj(req), { n: req.body?.n, label: req.body?.label, note: req.body?.note })));
+  app.post('/admin/releases/:project', admin, wrap(async (req) => rel().start(proj(req), { n: req.body?.n, label: req.body?.label, note: req.body?.note, force: req.body?.force === true })));
   app.delete('/admin/releases/:project/:id', admin, wrap(async (req) => { await rel().remove(proj(req), req.params.id); return { ok: true }; }));
   app.get('/admin/releases/:project/:id/download', admin, wrap(async (req, res) => {
     const p = await rel().fileOf(proj(req), req.params.id, null);

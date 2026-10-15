@@ -327,10 +327,14 @@
       <div class="card" id="relBuild" style="margin-bottom:12px"><div class="toolbar"><b>빌드 명령</b> <span class="dim" id="relBuildState"></span></div>
         <div class="dim">미리보기 레시피의 명령을 그대로 쓰되, 프로젝트 설정 <code>release.front.build</code>·<code>release.back.build</code> 를 적으면 그것으로 빌드합니다. <b>미리보기는 개발용 프로파일로 빌드합니다</b> — 운영에 넘길 배포판이면 운영 프로파일 명령을 적어 주세요(예: 프론트 <code>--mode product</code>, 백엔드 <code>-Pprofile=product</code>).</div>
       </div>
+      <div class="card" style="margin-bottom:12px"><div class="toolbar"><b>어느 소스로 묶나</b></div>
+        <div class="dim"><b>기준 브랜치 최신</b>(기본)은 그 브랜치에 들어온 <b>모든</b> 작업을 담습니다 — 킷을 거치지 않고 사람이 직접 푸시한 것까지. 반면 <b>버전</b>은 킷이 고친 커밋 하나만 가리키므로, 그것을 고르면 그 뒤·옆에 올라온 다른 사람의 작업이 빠집니다. 아직 기준 브랜치에 병합되지 않은 버전은 거부하고, 병합됐지만 뒤에 커밋이 더 있으면 몇 개가 빠지는지 로그·릴리스 노트에 적습니다.</div>
+      </div>
       <div class="toolbar">
-        <select id="relVersion" title="어느 버전으로 묶을까요"><option value="">기준 브랜치 최신</option></select>
+        <select id="relVersion" title="어느 버전으로 묶을까요"><option value="">기준 브랜치 최신 (권장 - 모든 작업 포함)</option></select>
         <input id="relLabel" placeholder="이름 (선택: 2026-10 1차 납품)" style="min-width:200px">
         <input id="relNote" placeholder="릴리스 노트에 넣을 메모 (선택)" style="flex:1;min-width:200px">
+        <label class="dim" title="기준 브랜치에 들어가 있지 않은 소스도 그대로 묶습니다 - 다른 작업이 빠집니다"><input type="checkbox" id="relForce"> 병합 안 된 소스도 허용</label>
         <button class="btn primary" id="relMake">배포판 만들기</button>
         <span class="msg" id="relMsg"></span>
       </div>
@@ -1005,7 +1009,7 @@
       const d = x.db;
       return `<tr data-rel="${esc(x.id)}">
       <td><b>${esc(x.id)}</b> <span class="pill ${relPill[st] || 'p-NONE'}">${relLabel[st] || st}</span><div class="dim">${ago(x.createdAt)}${x.seconds ? ` · ${x.seconds}초` : ''}</div></td>
-      <td><div>${esc(x.label || '(이름 없음)')}</div><div class="dim">${x.version != null ? `버전 v${x.version} · ` : ''}${esc(String(x.sha || '').slice(0, 8))} · ${esc(x.base || '')}${x.sizeBytes ? ` · ${mb(x.sizeBytes)} · 파일 ${x.fileCount}개` : ''}${x.pruned ? ' · <b>빌드 산출물 정리됨</b>(DDL·노트는 남아 있음)' : ''}</div>${x.error ? `<div class="bad" style="font-size:11px">${esc(x.error)}</div>` : ''}${(d?.unapplied || []).length ? `<div class="warn" style="font-size:11px">저장소 DDL 파일 ${d.unapplied.length}개가 받는 쪽에 안 들어가 있습니다</div>` : ''}</td>
+      <td><div>${esc(x.label || '(이름 없음)')}</div><div class="dim">${x.version != null ? `버전 v${x.version} · ` : ''}${esc(String(x.sha || '').slice(0, 8))} · ${esc(x.base || '')}${x.sizeBytes ? ` · ${mb(x.sizeBytes)} · 파일 ${x.fileCount}개` : ''}${x.pruned ? ' · <b>빌드 산출물 정리됨</b>(DDL·노트는 남아 있음)' : ''}</div>${x.error ? `<div class="bad" style="font-size:11px">${esc(x.error)}</div>` : ''}${x.source ? (x.source.sameAsBase ? `<div class="ok" style="font-size:11px">${esc(x.source.base)} 최신과 같음</div>` : x.source.onBase ? `<div class="warn" style="font-size:11px">${esc(x.source.base)} 에 이후 커밋 ${x.source.behind}개 있음 — 그만큼 빠짐${x.source.behindAuthors?.length ? ` (${esc(x.source.behindAuthors.join(', '))})` : ''}</div>` : `<div class="bad" style="font-size:11px">${esc(x.source.base)} 에 병합되지 않은 소스</div>`) : ''}${(d?.unapplied || []).length ? `<div class="warn" style="font-size:11px">저장소 DDL 파일 ${d.unapplied.length}개가 받는 쪽에 안 들어가 있습니다</div>` : ''}</td>
       <td>${d ? `적용 <b>${d.safeCount}</b> · 확인 <b>${d.reviewCount}</b><div class="dim" style="font-size:11px">기준: ${esc(d.baselineKind === 'upload' ? '올린 스냅샷' : d.baselineKind === 'previous' ? '직전 배포판' : '없음(전체)')}</div>` : '<span class="dim">없음</span>'}</td>
       <td>${busy ? '<span class="dim">진행 로그 아래</span>' : ''}
         ${st === 'DONE' && !x.pruned ? `<button class="btn primary" data-reldl="${esc(x.id)}">내려받기</button>` : ''}
@@ -1035,7 +1039,7 @@
     if (e.target.closest('#relBaseDel')) { if (!confirm('기준 스냅샷을 지울까요? 다음 배포판은 직전 배포판의 스냅샷(없으면 전체 스키마)을 기준으로 삼습니다')) return; try { await api('DELETE', `/admin/releases/${relProject}/baseline`); $('#relBaseMsg').textContent = '지웠습니다'; await loadReleases(); } catch (x) { $('#relBaseMsg').textContent = x.message; } return; }
     if (e.target.closest('#relMake')) {
       const btn = e.target.closest('#relMake'); btn.disabled = true; $('#relMsg').textContent = '등록 중…';
-      try { await api('POST', `/admin/releases/${relProject}`, { n: $('#relVersion').value || null, label: $('#relLabel').value, note: $('#relNote').value }); $('#relMsg').textContent = '묶는 중입니다 (프론트·백엔드 빌드에 몇 분)'; $('#relLabel').value = ''; $('#relNote').value = ''; await loadReleases(); }
+      try { await api('POST', `/admin/releases/${relProject}`, { n: $('#relVersion').value || null, label: $('#relLabel').value, note: $('#relNote').value, force: $('#relForce').checked }); $('#relMsg').textContent = '묶는 중입니다 (프론트·백엔드 빌드에 몇 분)'; $('#relLabel').value = ''; $('#relNote').value = ''; await loadReleases(); }
       catch (x) { $('#relMsg').textContent = x.message; } finally { btn.disabled = false; }
       return;
     }

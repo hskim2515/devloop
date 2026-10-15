@@ -169,7 +169,7 @@ export class Releases {
   /**
    * 큐에 넣는다. n 을 비우면 가장 최근 버전, 버전이 없으면 base 브랜치의 최신 커밋을 쓴다.
    */
-  async start(project, { n = null, label = '', note = '' } = {}) {
+  async start(project, { n = null, label = '', note = '', force = false } = {}) {
     const r = this.recipe(project);
     const nothing = !(r.include.front && r.front) && !(r.include.back && r.back) && !(r.include.db && r.preview?.db);
     if (nothing) throw Object.assign(new Error('묶을 것이 없습니다 - 미리보기 레시피(preview)를 만들거나 프로젝트 설정 release 에 front·back·db 를 적으세요'), { status: 409 });
@@ -182,7 +182,7 @@ export class Releases {
     const st = await this.save(project.name, (c) => {
       const seq = (c.seq || 0) + 1;
       const id = `r${String(seq).padStart(3, '0')}`;
-      return { ...c, seq, releases: [...c.releases, { id, seq, version, sha, base, label: String(label || '').slice(0, 80), note: String(note || '').slice(0, 2000), status: 'QUEUED', createdAt: nowIso(), log: '' }] };
+      return { ...c, seq, releases: [...c.releases, { id, seq, version, sha, base, force: !!force, label: String(label || '').slice(0, 80), note: String(note || '').slice(0, 2000), status: 'QUEUED', createdAt: nowIso(), log: '' }] };
     });
     const rel = st.releases[st.releases.length - 1];
     const ahead = this.runner.submit(project, `release-${rel.id}`, () => this.run(project, rel.id), async (e) => {
@@ -211,14 +211,25 @@ export class Releases {
     await fs.mkdir(out, { recursive: true });
     await this.runner.prepareRepo(project, ex, gh.gitAuthHeader(), L);
 
-    // 버전을 안 줬으면 base 브랜치 최신으로
+    // 기준 브랜치를 늘 최신으로 가져온다 - 소스 기준을 판정해야 한다
+    await this.runner.mutex(this.runner.repoKey(project), () => ex.exec(repo, 10, ['git', '-c', `http.extraheader=${gh.gitAuthHeader()}`, 'fetch', 'origin', rel.base]));
+    const head = (await ex.exec(repo, 1, ['git', 'rev-parse', `origin/${rel.base}`])).trim();
+
     let sha = rel.sha;
     if (!sha) {
-      await this.runner.mutex(this.runner.repoKey(project), () => ex.exec(repo, 10, ['git', '-c', `http.extraheader=${gh.gitAuthHeader()}`, 'fetch', 'origin', rel.base]));
-      sha = (await ex.exec(repo, 1, ['git', 'rev-parse', `origin/${rel.base}`])).trim();
+      sha = head;
       await this.update(name, id, { sha });
-      await L(`버전을 주지 않아 ${rel.base} 최신 커밋을 씁니다: ${sha.slice(0, 8)}`);
+      await L(`버전을 주지 않아 ${rel.base} 최신 커밋을 씁니다: ${sha.slice(0, 8)} (그 브랜치에 들어온 모든 작업 포함)`);
     }
+    const src = await this.sourceBase(ex, repo, sha, rel.base, head);
+    await this.update(name, id, { source: src });
+    if (!src.onBase && !rel.force) {
+      throw new Error(`이 소스(${sha.slice(0, 8)})는 아직 ${rel.base} 에 들어가 있지 않습니다. `
+        + `그대로 묶으면 ${rel.base} 에 올라온 다른 작업(킷을 거치지 않고 직접 푸시된 것까지)이 전부 빠집니다. `
+        + `먼저 병합하거나, 버전을 비우고 '${rel.base} 최신' 으로 만드세요(정말 이 상태로 묶아야 하면 force).`);
+    }
+    if (src.behind > 0) await L(`⚠ 이 소스 뒤로 ${rel.base} 에 커밋 ${src.behind}개가 더 있습니다 (${src.behindAuthors.join(', ') || '작성자 확인 불가'}) - 그만큼 빠집니다`);
+    else await L(`✓ 소스 기준: ${rel.base} 최신과 같습니다`);
     await this.runner.freshWorktree(ex, repo, jobs, wt, sha);
 
     const artifacts = [];
@@ -255,12 +266,13 @@ export class Releases {
       if (r.include.db && r.preview.db) db = await this.buildDb(project, id, ex, wt, out, r, L);
 
       // ── 노트·명세 ──
-      const notes = await this.notes(project, id, { sha, base: rel.base, db, artifacts, r, ex, repo });
+      const notes = await this.notes(project, id, { sha, base: rel.base, db, artifacts, r, ex, repo, src });
       await fs.writeFile(path.join(out, 'RELEASE.md'), notes, 'utf8');
       const manifest = {
         project: name, release: id, version: rel.version ?? null, sha, baseBranch: rel.base,
         label: rel.label || null, builtAt: nowIso(), kit: this.cfg.version || null,
         artifacts, db: db ? { ...db, baselineSnapshot: undefined } : null,
+        source: src,
       };
       await fs.writeFile(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
       const sums = await this.checksums(out);
@@ -283,6 +295,23 @@ export class Releases {
     } finally {
       await this.runner.removeWorktree(ex, repo, wt);
     }
+  }
+
+  /**
+   * 이 소스가 기준 브랜치에서 어디쯤인가.
+   *
+   * <p>킷이 만든 '버전' 은 킷이 고친 커밋만 가리킨다. 사람·다른 세션이 킷을 거치지 않고 기준
+   * 브랜치에 직접 푸시한 작업은 버전으로 남지 않는다(lhdt 실측: 팀원 직접 푸시와 다른 세션 커밋이
+   * 대부분이다). 그래서 버전을 골라 묶으면 그 뒤·옆의 작업이 조용히 빠진다. 여기서
+   * ① 기준 브랜치에 들어간 커밋인지 ② 뒤에 몇 개가 더 있는지를 재어 막거나 알린다.
+   */
+  async sourceBase(ex, repo, sha, base, head) {
+    const onBase = (await ex.execRc(repo, 1, ['git', 'merge-base', '--is-ancestor', sha, head])) === 0;
+    const behind = onBase ? Number((await ex.execOut(repo, 1, ['git', 'rev-list', '--count', `${sha}..${head}`])).trim() || 0) : null;
+    const behindAuthors = onBase && behind
+      ? [...new Set((await ex.execOut(repo, 2, ['git', 'log', '--format=%an', `${sha}..${head}`])).trim().split('\n').filter(Boolean))].slice(0, 6)
+      : [];
+    return { sha, base, baseHead: head, onBase, behind, behindAuthors, sameAsBase: sha === head };
   }
 
   /**
@@ -349,12 +378,17 @@ export class Releases {
   }
 
   /** 릴리스 노트 - 무엇이 들어 있고, 받는 쪽에서 무엇을 해야 하는가 */
-  async notes(project, id, { sha, base, db, artifacts, r, ex, repo }) {
+  async notes(project, id, { sha, base, db, artifacts, r, ex, repo, src = null }) {
     const rel = await this.get(project.name, id);
     const prev = (await this.list(project.name)).find((x) => x.status === 'DONE' && x.sha && x.sha !== sha);
     const lines = [];
     lines.push(`# ${project.name} 배포판 ${id}${rel.label ? ` — ${rel.label}` : ''}`, '');
     lines.push(`- 소스: \`${sha.slice(0, 12)}\` (${base}${rel.version != null ? `, 버전 v${rel.version}` : ''})`);
+    if (src) lines.push(src.sameAsBase
+      ? `- 소스 기준: **${base} 최신과 같음** — 그 브랜치에 들어온 모든 작업이 들어 있습니다(킷을 거치지 않고 직접 푸시된 것까지)`
+      : src.onBase
+        ? `- 소스 기준: ${base} 에 들어간 커밋이지만 **그 뒤로 커밋 ${src.behind}개가 더 있습니다**${src.behindAuthors.length ? ` (${src.behindAuthors.join(', ')})` : ''} — 그만큼은 이 배포판에 없습니다`
+        : `- 소스 기준: ⚠ **${base} 에 들어가 있지 않은 소스**입니다 (force 로 묶음) — ${base} 의 다른 작업이 빠져 있습니다`);
     lines.push(`- 만든 시각: ${nowIso()}`);
     if (prev) lines.push(`- 직전 배포판: ${prev.id} (\`${String(prev.sha).slice(0, 12)}\`)`);
     if (rel.note) lines.push('', rel.note);

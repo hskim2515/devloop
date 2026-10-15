@@ -113,3 +113,60 @@ test('묶을 것이 하나도 없으면 시작하지 않는다', async () => {
   const { rel, project } = await fixture({ preview: null, release: { include: { db: false } } });
   await assert.rejects(() => rel.start(project, {}), (e) => e.status === 409 && /묶을 것이 없습니다/.test(e.message));
 });
+
+// ── 소스 기준: 킷을 거치지 않고 기준 브랜치에 직접 푸시된 작업이 빠지지 않게 ──
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+const run = promisify(execFile);
+/** 실제 git 저장소로 재는 부분이라 작은 ex 어댑터를 쓴다 */
+const gitEx = {
+  exec: async (cwd, _m, cmd) => (await run(cmd[0], cmd.slice(1), { cwd })).stdout,
+  execOut: async (cwd, _m, cmd) => { try { return (await run(cmd[0], cmd.slice(1), { cwd })).stdout; } catch { return ''; } },
+  execRc: async (cwd, _m, cmd) => { try { await run(cmd[0], cmd.slice(1), { cwd }); return 0; } catch { return 1; } },
+};
+
+async function repoWithBranch() {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'devloop-git-'));
+  const g = (...a) => run('git', a, { cwd: dir });
+  await g('init', '-q', '-b', 'main');
+  await g('config', 'user.email', 't@t'); await g('config', 'user.name', '팀원');
+  await fs.writeFile(path.join(dir, 'a'), '1'); await g('add', '-A'); await g('commit', '-qm', 'base');
+  // 킷이 만든 커밋(버전) - 아직 main 에 안 들어감
+  await g('checkout', '-q', '-b', 'claude/devloop-1');
+  await fs.writeFile(path.join(dir, 'b'), '1'); await g('add', '-A'); await g('commit', '-qm', 'kit fix');
+  const kitSha = (await g('rev-parse', 'HEAD')).stdout.trim();
+  // 그 사이 사람이 main 에 직접 푸시
+  await g('checkout', '-q', 'main');
+  await fs.writeFile(path.join(dir, 'c'), '1'); await g('add', '-A'); await g('commit', '-qm', 'team push');
+  const mainSha = (await g('rev-parse', 'HEAD')).stdout.trim();
+  return { dir, kitSha, mainSha, g };
+}
+
+test('기준 브랜치에 안 들어간 소스는 onBase=false - 묶으면 다른 작업이 빠진다', async () => {
+  const { rel, project } = await fixture();
+  const { dir, kitSha, mainSha } = await repoWithBranch();
+  const src = await rel.sourceBase(gitEx, dir, kitSha, 'main', mainSha);
+  assert.equal(src.onBase, false);
+  assert.equal(src.sameAsBase, false);
+  assert.ok(project);
+});
+
+test('기준 브랜치 최신이면 sameAsBase - 직접 푸시된 작업까지 들어 있다', async () => {
+  const { rel } = await fixture();
+  const { dir, mainSha } = await repoWithBranch();
+  const src = await rel.sourceBase(gitEx, dir, mainSha, 'main', mainSha);
+  assert.equal(src.onBase, true);
+  assert.equal(src.sameAsBase, true);
+  assert.equal(src.behind, 0);
+});
+
+test('병합됐지만 뒤처진 소스는 빠지는 커밋 수와 작성자를 알려준다', async () => {
+  const { rel } = await fixture();
+  const { dir, mainSha, g } = await repoWithBranch();
+  const older = (await g('rev-parse', 'HEAD~1')).stdout.trim();
+  const src = await rel.sourceBase(gitEx, dir, older, 'main', mainSha);
+  assert.equal(src.onBase, true);
+  assert.equal(src.sameAsBase, false);
+  assert.equal(src.behind, 1);
+  assert.deepEqual(src.behindAuthors, ['팀원']);
+});
