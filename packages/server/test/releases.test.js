@@ -90,3 +90,26 @@ test('재시작으로 끊긴 배포판은 실패로 정리한다 (반쯤 묶인 
   assert.equal(st.releases.find((x) => x.id === 'r001').status, 'FAILED');
   assert.equal(st.releases.find((x) => x.id === 'r002').status, 'DONE');
 });
+
+test('배포판 전용 빌드 명령이 미리보기를 덮고, 안 적으면 표시가 남는다', async () => {
+  const pv = { front: { dir: 'fe', build: 'npm run build-develop', dist: 'dist', env: { API: '{backUrl}', KEEP: 'x' } }, back: { dir: 'be', build: './gradlew bootWar -Pprofile=develop' }, db: { container: 'c' } };
+  // 안 적은 경우: 미리보기 명령을 쓰지만 buildOverridden 으로 알린다
+  const a = await fixture({ preview: pv });
+  const ra = a.rel.recipe(a.project);
+  assert.equal(ra.front.build, 'npm run build-develop');
+  assert.deepEqual(ra.buildOverridden, { front: false, back: false });
+  assert.deepEqual(ra.front.env, { KEEP: 'x' });                      // {backUrl} 같은 미리보기 값은 들고 가지 않는다
+
+  // 적은 경우: 운영 프로파일 명령으로 바뀐다
+  const b = await fixture({ preview: pv, release: { front: { build: 'npx vue-cli-service build --mode product' }, back: { build: './gradlew bootWar -Pprofile=product' } } });
+  const rb = b.rel.recipe(b.project);
+  assert.equal(rb.front.build, 'npx vue-cli-service build --mode product');
+  assert.equal(rb.back.build, './gradlew bootWar -Pprofile=product');
+  assert.equal(rb.front.dir, 'fe');                                   // 안 덮은 값은 미리보기 것을 그대로
+  assert.deepEqual(rb.buildOverridden, { front: true, back: true });
+});
+
+test('묶을 것이 하나도 없으면 시작하지 않는다', async () => {
+  const { rel, project } = await fixture({ preview: null, release: { include: { db: false } } });
+  await assert.rejects(() => rel.start(project, {}), (e) => e.status === 409 && /묶을 것이 없습니다/.test(e.message));
+});

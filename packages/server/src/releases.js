@@ -46,17 +46,39 @@ export class Releases {
   tarPath(project, id) { return path.join(this.cfg.server.dataDir, project, 'releases', `${id}.tar.gz`); }
   baselineFile(project) { return path.join(this.cfg.server.dataDir, project, 'schema-baseline.json'); }
 
-  /** 배포판 설정 - 미리보기 레시피 + release 오버라이드 */
+  /**
+   * 배포판 설정 - 미리보기 레시피(preview)를 받아쓰고 `release` 에 적은 것으로 덮는다.
+   *
+   * <p>⚠️ 빌드 명령을 반드시 다시 볼 것. 미리보기는 **개발용 프로파일**로 빌드한다(lhdt 실측:
+   * 프론트 `--mode development` 는 lhdt.gaia3d.dev 를, 백엔드 `-Pprofile=develop` 은 개발 DB·개발
+   * 설정을 본다). 운영에 넘기는 배포판은 운영 프로파일로 빌드해야 하므로 `release.front.build`·
+   * `release.back.build` 를 적어야 한다. 안 적으면 미리보기 명령을 그대로 쓰고, 그 사실을
+   * 릴리스 노트와 콘솔에 적어 둔다(조용히 개발 빌드를 넘기지 않게).
+   *
+   * <p>`env` 는 합치지 않고 **갈아치운다** - 미리보기 env 는 {backUrl} 처럼 미리보기에서만 뜻이 있다.
+   */
   recipe(project) {
     const pv = this.versions?.recipe(project) || null;
     const r = project.release || {};
+    const step = (base, over) => {
+      if (!base && !over) return null;
+      const m = { ...(base || {}), ...(over || {}) };
+      m.env = over?.env ? { ...over.env } : { ...(base?.env || {}) };
+      // 미리보기 자리표시자가 든 값은 배포판에서 뜻이 없다 - 들고 가지 않는다
+      for (const [k, v] of Object.entries(m.env)) if (/\{(backUrl|previewUrl|port|db|n)\}/.test(String(v))) delete m.env[k];
+      return m;
+    };
+    const front = step(pv?.front, r.front);
+    const back = step(pv?.back, r.back);
     return {
       frontBase: typeof r.frontBase === 'string' ? r.frontBase : '/',
-      include: { front: !!pv?.front, back: !!pv?.back, db: !!pv?.db, ...(r.include || {}) },
+      include: { front: !!front, back: !!back, db: !!pv?.db, ...(r.include || {}) },
       schemas: Array.isArray(r.schemas) && r.schemas.length ? r.schemas : ['public'],
       ddlGlob: typeof r.ddlGlob === 'string' ? r.ddlGlob : '',
       keep: Number(r.keep) > 0 ? Number(r.keep) : 5,
-      preview: pv,
+      front, back, preview: pv,
+      // 운영 프로파일로 빌드하도록 따로 적었는가 - 안 적었으면 경고로 보여 준다
+      buildOverridden: { front: !!r.front?.build, back: !!r.back?.build },
     };
   }
 
@@ -149,7 +171,8 @@ export class Releases {
    */
   async start(project, { n = null, label = '', note = '' } = {}) {
     const r = this.recipe(project);
-    if (!r.preview) throw Object.assign(new Error('빌드 레시피가 없습니다 - 콘솔 버전 탭에서 미리보기 레시피를 만들거나 프로젝트 설정 preview 를 적으세요'), { status: 409 });
+    const nothing = !(r.include.front && r.front) && !(r.include.back && r.back) && !(r.include.db && r.preview?.db);
+    if (nothing) throw Object.assign(new Error('묶을 것이 없습니다 - 미리보기 레시피(preview)를 만들거나 프로젝트 설정 release 에 front·back·db 를 적으세요'), { status: 409 });
     let sha = null, base = project.baseBranch, version = null;
     if (n != null && n !== '') {
       const v = await this.versions.get(project.name, n);
@@ -201,31 +224,30 @@ export class Releases {
     const artifacts = [];
     try {
       // ── 프론트 ──
-      if (r.include.front && r.preview.front) {
-        const fe = path.join(wt, r.preview.front.dir || '.');
+      if (r.include.front && r.front) {
+        const fe = path.join(wt, r.front.dir || '.');
         await this.runner.prepareNodeModules(project, ex, wt, L, true);
-        const env = { DEVLOOP_PREVIEW_BASE: r.frontBase };          // 미리보기와 같은 변수로 publicPath 를 받는다
-        for (const [k, v] of Object.entries(r.preview.front.env || {})) env[k] = v;
-        delete env.VITE_API_URL;                                     // 미리보기 전용 백엔드 주소는 배포판에 넣지 않는다
-        await L(`프론트 빌드: ${r.preview.front.build}  (publicPath ${r.frontBase})`);
+        const env = { DEVLOOP_PREVIEW_BASE: r.frontBase, ...r.front.env };   // 플러그인이 이 변수로 base·publicPath 를 맞춘다
+        await L(`프론트 빌드: ${r.front.build}  (publicPath ${r.frontBase})${r.buildOverridden.front ? '' : '  ⚠ 미리보기와 같은 명령 - 운영 프로파일인지 확인할 것'}`);
         const exportEnv = Object.entries(env).map(([k, v]) => `export ${k}=${JSON.stringify(v)};`).join(' ');
-        await ex.sh(fe, this.cfg.server.verifyTimeoutMinutes || 20, `${exportEnv} ${r.preview.front.build}`);
-        const dist = path.join(fe, r.preview.front.dist || 'dist');
+        await ex.sh(fe, this.cfg.server.verifyTimeoutMinutes || 20, `${exportEnv} ${r.front.build}`);
+        const dist = path.join(fe, r.front.dist || 'dist');
         if (!fss.existsSync(path.join(dist, 'index.html'))) throw new Error(`프론트 빌드 결과에 index.html 이 없습니다: ${dist}`);
         await fs.cp(dist, path.join(out, 'front'), { recursive: true, dereference: true });
-        artifacts.push({ kind: 'front', path: 'front/', note: `정적 파일 (publicPath ${r.frontBase})` });
+        artifacts.push({ kind: 'front', path: 'front/', note: `정적 파일 (publicPath ${r.frontBase}) — 빌드: ${r.front.build}` });
         await L('✓ 프론트');
       }
       // ── 백엔드 ──
-      if (r.include.back && r.preview.back) {
-        const be = path.join(wt, r.preview.back.dir || '.');
-        await L(`백엔드 빌드: ${r.preview.back.build}`);
-        await ex.sh(be, this.cfg.server.verifyTimeoutMinutes || 20, r.preview.back.build);
-        const art = await this.versions.findArtifact(ex, be, r.preview.back.artifact || 'build/libs/*.jar');
-        if (!art) throw new Error(`실행 파일을 찾지 못했습니다: ${r.preview.back.artifact}`);
+      if (r.include.back && r.back) {
+        const be = path.join(wt, r.back.dir || '.');
+        await L(`백엔드 빌드: ${r.back.build}${r.buildOverridden.back ? '' : '  ⚠ 미리보기와 같은 명령 - 운영 프로파일인지 확인할 것'}`);
+        const envArgs = Object.entries(r.back.env || {}).map(([k, v]) => `export ${k}=${JSON.stringify(v)};`).join(' ');
+        await ex.sh(be, this.cfg.server.verifyTimeoutMinutes || 20, `${envArgs} ${r.back.build}`);
+        const art = await this.versions.findArtifact(ex, be, r.back.artifact || 'build/libs/*.jar');
+        if (!art) throw new Error(`실행 파일을 찾지 못했습니다: ${r.back.artifact}`);
         await fs.mkdir(path.join(out, 'back'), { recursive: true });
         await fs.copyFile(art, path.join(out, 'back', path.basename(art)));
-        artifacts.push({ kind: 'back', path: `back/${path.basename(art)}`, note: '실행 파일' });
+        artifacts.push({ kind: 'back', path: `back/${path.basename(art)}`, note: `실행 파일 — 빌드: ${r.back.build}` });
         await L(`✓ 백엔드: ${path.basename(art)}`);
       }
       // ── DB ──
@@ -338,6 +360,9 @@ export class Releases {
     if (rel.note) lines.push('', rel.note);
     lines.push('', '## 들어 있는 것', '');
     for (const a of artifacts) lines.push(`- \`${a.path}\` — ${a.note}`);
+    const notOverridden = [r.include.front && r.front && !r.buildOverridden.front ? '프론트' : null, r.include.back && r.back && !r.buildOverridden.back ? '백엔드' : null].filter(Boolean);
+    if (notOverridden.length) lines.push('', `> ⚠ ${notOverridden.join('·')} 빌드 명령이 **미리보기와 같습니다**. 미리보기는 개발용 프로파일로 빌드합니다 —`,
+      '> 운영에 넘길 것이면 프로젝트 설정 `release.front.build`·`release.back.build` 에 운영 프로파일 명령을 적고 다시 만드세요.');
     if (db) lines.push('- `db/01-적용.sql` — DB 스키마 적용 DDL', '- `db/02-확인필요.sql` — 사람이 보고 결정할 변경 (전부 주석)', '- `db/스키마-스냅샷.json` — 이 배포판 기준 스키마 (다음 배포판의 기준점)', '- `db/스냅샷-SQL.sql` — 받는 쪽 DB 스키마를 뜨는 SQL');
 
     if (db) {

@@ -142,14 +142,20 @@ git 은 소스를 추적하지만 DB 스키마는 아무도 추적하지 않습�
 - `release.ddlGlob` 을 적으면 저장소에 커밋된 DDL 파일이 받는 쪽에 실제로 들어갔는지도 이름으로 훑어 릴리스 노트에 적습니다(SQL 을 해석하지는 않습니다).
 - 루프 단계 `{ type: 'release' }` 로 자동화할 수 있습니다. 보관 개수는 `release.keep`(기본 5) — 넘으면 빌드 산출물만 지우고 DDL·스냅샷은 남겨 기준점이 끊기지 않게 합니다.
 
+**운영 프로파일로 빌드해야 합니다.** 미리보기는 개발용 프로파일로 빌드하므로(개발 API 주소·개발 DB 설정), `release.front.build`·`release.back.build` 에 운영 명령을 적어야 합니다. 안 적으면 미리보기 명령을 그대로 쓰고 콘솔과 릴리스 노트에 ⚠ 로 적습니다 — 조용히 개발 빌드를 넘기지 않습니다. `release.front.env` 를 주면 미리보기 env 를 대신하며, `{backUrl}` 같은 미리보기 자리표시자가 든 값은 배포판에 들고 가지 않습니다.
+
 ```yaml
 release:
   frontBase: /                 # 배포판 프론트의 publicPath (미리보기와 달리 실제 서비스 경로)
+  front: { build: 'npx vue-cli-service build --mode product' }   # 운영 프로파일
+  back:  { build: './gradlew bootWar -Pprofile=product' }
   include: { front: true, back: true, db: true }
   schemas: [public]
   ddlGlob: 'doc/database/**/ddl/*.sql'
   keep: 5
 ```
+
+`dir`·`dist`·`artifact` 처럼 안 적은 값은 미리보기 레시피 것을 그대로 씁니다. DB 스냅샷은 프로파일과 무관합니다 — 스키마는 설정이 아니라 DB 에 있는 것이라 개발 DB 에서 떠도 같습니다.
 
 ---
 

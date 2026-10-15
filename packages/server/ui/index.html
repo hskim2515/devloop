@@ -324,6 +324,9 @@
         </div>
       </div>
 
+      <div class="card" id="relBuild" style="margin-bottom:12px"><div class="toolbar"><b>빌드 명령</b> <span class="dim" id="relBuildState"></span></div>
+        <div class="dim">미리보기 레시피의 명령을 그대로 쓰되, 프로젝트 설정 <code>release.front.build</code>·<code>release.back.build</code> 를 적으면 그것으로 빌드합니다. <b>미리보기는 개발용 프로파일로 빌드합니다</b> — 운영에 넘길 배포판이면 운영 프로파일 명령을 적어 주세요(예: 프론트 <code>--mode product</code>, 백엔드 <code>-Pprofile=product</code>).</div>
+      </div>
       <div class="toolbar">
         <select id="relVersion" title="어느 버전으로 묶을까요"><option value="">기준 브랜치 최신</option></select>
         <input id="relLabel" placeholder="이름 (선택: 2026-10 1차 납품)" style="min-width:200px">
@@ -980,8 +983,15 @@
     $('#relBaseState').innerHTML = b
       ? `· <b>${esc(b.database || '?')}</b> 테이블 ${b.tables}개 · ${esc(String(b.server || '').split(' ')[0])} · ${ago(b.savedAt)} 올림${b.takenAt ? ` (뜬 시각 ${esc(b.takenAt)})` : ''}`
       : '· 없음 — 직전 배포판의 스냅샷을 쓰거나, 그것도 없으면 전체 스키마를 냅니다';
-    if (!r.recipe?.preview) $('#relMsg').textContent = '빌드 레시피가 없습니다 - 버전 탭에서 미리보기 레시피를 먼저 만드세요';
-    $('#relMake').disabled = !r.recipe?.preview;
+    const rc = r.recipe || {};
+    const parts = [];
+    if (rc.include?.front && rc.front) parts.push(`프론트: <code>${esc(rc.front.build || '(없음)')}</code> ${rc.buildOverridden?.front ? '<span class="ok">· 배포판 전용</span>' : '<span class="warn">· 미리보기와 같음(개발 프로파일일 수 있음)</span>'}`);
+    if (rc.include?.back && rc.back) parts.push(`백엔드: <code>${esc(rc.back.build || '(없음)')}</code> ${rc.buildOverridden?.back ? '<span class="ok">· 배포판 전용</span>' : '<span class="warn">· 미리보기와 같음(개발 프로파일일 수 있음)</span>'}`);
+    if (rc.include?.db && rc.preview?.db) parts.push(`DB 스냅샷: <code>${esc(rc.preview.db.container || rc.preview.db.host || '?')} / ${esc(rc.preview.db.name || '')}</code>`);
+    $('#relBuildState').innerHTML = parts.length ? parts.join(' &nbsp;·&nbsp; ') : '· 묶을 것이 없습니다 - 미리보기 레시피나 release 설정이 필요합니다';
+    const canMake = !!((rc.include?.front && rc.front) || (rc.include?.back && rc.back) || (rc.include?.db && rc.preview?.db));
+    if (!canMake) $('#relMsg').textContent = '묶을 것이 없습니다 - 버전 탭에서 미리보기 레시피를 먼저 만드세요';
+    $('#relMake').disabled = !canMake;
     const sel = $('#relVersion');
     if (document.activeElement !== sel) {
       const cur = sel.value;
