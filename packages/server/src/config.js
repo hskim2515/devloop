@@ -2,7 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
 import { expandHome, notBlank } from './util.js';
+import { fileURLToPath } from 'node:url';
 import { detectHost } from './gitlab.js';
+
+/** 킷 버전 - 배포판 manifest·릴리스 노트에 남긴다 */
+function kitVersion() {
+  try { return JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'package.json'), 'utf8')).version || ''; }
+  catch { return ''; }
+}
 
 /**
  * 설정 파일(devloop.yml) 을 읽고 기본값·환경변수를 합친다.
@@ -75,6 +82,9 @@ export function loadConfig(file) {
       taskMode: ['auto', 'plan', 'step'].includes(p.taskMode) ? p.taskMode : 'plan',
       // 외부 이슈(GitHub/GitLab issues) 연동: 가져온 이슈에 진행 상황 댓글 · 병합되면 닫기
       issues: { comment: p.issues?.comment !== false, closeOnMerge: p.issues?.closeOnMerge === true },
+      // 배포판(release): 빌드는 preview 레시피를 그대로 쓰고 다른 점만 적는다
+      // { frontBase: '/', include: {front,back,db}, schemas: ['public'], ddlGlob: 'doc/**/ddl/*.sql', keep: 5 }
+      release: typeof p.release === 'object' && p.release ? p.release : {},
       previewAuto: p.previewAuto === true,   // 기본 끔 - 미리보기는 재현·인수 검증 때와 사람이 '미리보기 띄우기' 를 누를 때만
       reproCheck: p.reproCheck !== false,
       reproRounds: Number(p.reproRounds) > 0 ? Number(p.reproRounds) : 2,
@@ -96,6 +106,7 @@ export function loadConfig(file) {
   if (Object.keys(projects).length === 0) console.warn('[devloop] projects 가 비어 있습니다 - 콘솔(/api/ui/)의 프로젝트 탭에서 채우세요');
 
   const cfgObj = {
+    version: kitVersion(),
     server,
     github,
     projects,

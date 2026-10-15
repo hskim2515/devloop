@@ -73,7 +73,7 @@ export function adminRouter(cfg, store, runner, log = console) {
     cfg.reload();
   };
 
-  const PROJECT_FIELDS = ['repo', 'githubRepo', 'baseBranch', 'autoMerge', 'delivery', 'preview', 'loops', 'knowledge', 'insights', 'notify', 'publicUrl', 'previewAuto', 'reproCheck', 'reproRounds', 'restBase', 'taskMode', 'issues', 'fixFrom', 'protectedPaths', 'cors', 'description', 'conventions', 'modules', 'frontCheck', 'allowedTools', 'env', 'envFile', 'githubTokenFile'];
+  const PROJECT_FIELDS = ['repo', 'githubRepo', 'baseBranch', 'autoMerge', 'delivery', 'preview', 'release', 'loops', 'knowledge', 'insights', 'notify', 'publicUrl', 'previewAuto', 'reproCheck', 'reproRounds', 'restBase', 'taskMode', 'issues', 'fixFrom', 'protectedPaths', 'cors', 'description', 'conventions', 'modules', 'frontCheck', 'allowedTools', 'env', 'envFile', 'githubTokenFile'];
   const SERVER_FIELDS = ['port', 'claudeBin', 'pathExtra', 'javaHome', 'model', 'maxTurns', 'timeoutMinutes', 'verifyTimeoutMinutes', 'runAsUser', 'workDir', 'dataDir'];
 
   r.get('/settings', wrap(async () => {

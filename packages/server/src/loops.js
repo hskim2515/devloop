@@ -12,6 +12,7 @@ import { firstLine, hhmmss, nowIso, sleep } from './util.js';
  *           { type: 'fix', severity: 'HIGH', max: 2, kinds }    제안 중 심각도 이상을 리포트로 만들어 AI 수정(프로젝트 delivery 대로)
  *           { type: 'preview' }                                 이번 실행에서 만든 수정본 버전을 미리보기로
  *           { type: 'export', mode: 'pr'|'merge'|'branch' }     이번 실행의 수정본을 내보내기
+ *           { type: 'release', label, note }                     배포판 묶기(프론트·백엔드 빌드 + 받는 쪽 DB 를 맞추는 DDL)
  * 실행 기록: {dataDir}/{project}/loops.json = { runs: [{ id, loop, trigger, startedAt, endedAt, status, log, made: [reportId…] }], last: { [loop]: { at, sha } } }
  * 한 프로젝트에 루프는 한 번에 하나만 돈다(단계들이 큐를 쓰므로 겹치면 서로 기다리기만 한다).
  */
@@ -220,6 +221,15 @@ export class Loops {
             const x = await waitUntil(async () => { const y = await this.store.get(p, rid); return ['QUEUED', 'RUNNING'].includes(y?.fixStatus) ? null : y; });
             await L(`${['MERGED', 'PR_OPENED', 'READY'].includes(x.fixStatus) ? '✓' : '✗'} #${rid} ${x.fixStatus}${x.fixPrUrl ? ` ${x.fixPrUrl}` : ''}`);
           }
+        } else if (step.type === 'release') {
+          // 루프 끝에 배포판 한 덩이 - 묶음 안에 DB DDL 까지 들어간다
+          if (!this.releases) { await L('배포판 기능이 없어 건너뜀'); continue; }
+          try {
+            const r0 = await this.releases.start(project, { label: step.label || `루프 ${loop.name}`, note: step.note || '' });
+            await L(`배포판 ${r0.id} 만드는 중…`);
+            const x = await waitUntil(async () => { const y = await this.releases.get(p, r0.id); return ['QUEUED', 'BUILDING'].includes(y?.status) ? null : y; });
+            await L(`${x.status === 'DONE' ? '✓' : '✗'} 배포판 ${r0.id} ${x.status}${x.db ? ` · DDL 적용 ${x.db.safeCount}건·확인 ${x.db.reviewCount}건` : ''}${x.error ? ` - ${firstLine(x.error, 120)}` : ''}`);
+          } catch (e) { await L(`✗ 배포판 실패: ${firstLine(e.message, 150)}`); }
         } else await L(`모르는 단계 '${step.type}' 건너뜀`);
       }
       await L(`✓ 루프 끝 - 만든 리포트 ${made.length}건`);

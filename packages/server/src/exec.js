@@ -65,6 +65,8 @@ export function makeExec(server, project, log = console) {
       const child = spawn(c[0], c.slice(1), { cwd, env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
       trackChild(child);
       let out = '';
+      // setEncoding 없이 Buffer 를 그냥 더하면 청크 경계에 걸친 멀티바이트 문자가 깨진다(한글·일본어 출력에서 발생)
+      child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
       child.stdout.on('data', (d) => { out += d; });
       child.stderr.on('data', (d) => { out += d; });
       const t = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
@@ -86,6 +88,9 @@ export function makeExec(server, project, log = console) {
     return new Promise((resolve, reject) => {
       let out = '';
       let timedOut = false;
+      // ⚠️ setEncoding 은 빼면 안 된다 - Buffer 를 문자열에 더하면 청크 경계에 걸친 멀티바이트 문자가 깨진다.
+      // (실측: DB 열 설명의 한글이 '분���' 처럼 깨져, 같은 DB 를 두 번 떠도 다르게 보였다)
+      child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
       child.stdout.on('data', (d) => { if (out.length < 4_000_000) out += d; });
       child.stderr.on('data', (d) => { if (out.length < 4_000_000) out += d; });
       const t = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMin * 60_000);

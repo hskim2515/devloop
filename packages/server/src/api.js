@@ -29,7 +29,7 @@ const REPORT_FIELDS = ['severity', 'problem', 'reproSteps', 'expectedResult', 's
  * 라우터를 돌려준다(경로는 마운트 지점 기준). 독립 서버는 `app.use('/api', router)`, 앱 내장(devloop/embed)은 `app.use('/devloop', router)`.
  * 콘솔(/ui/)은 자기 주소의 한 단계 위를 API 기준으로 쓰므로 어디에 마운트해도 맞는다.
  */
-export function createApi(cfg, store, runner, log = console, insights = null, knowledge = null, versions = null, loops = null, notifier = null, features = null) {
+export function createApi(cfg, store, runner, log = console, insights = null, knowledge = null, versions = null, loops = null, notifier = null, features = null, releases = null) {
   const app = express.Router();
   // 버전 미리보기({마운트}/v/:project/:n/…)는 본문을 그대로 넘겨야 하므로 JSON 파서보다 앞에
   if (versions) app.use(versions.router());
@@ -179,6 +179,44 @@ export function createApi(cfg, store, runner, log = console, insights = null, kn
   app.delete('/admin/versions/:project/:n/preview', admin, wrap(async (req) => versions.stop(proj(req), req.params.n)));
   app.delete('/admin/versions/:project/:n', admin, wrap(async (req) => { await versions.remove(proj(req), req.params.n); return { ok: true }; }));
   app.post('/admin/versions/:project/recipe/draft', admin, wrap(async (req) => ({ recipe: await versions.draftRecipe(proj(req), { note: String(req.body?.note || '').slice(0, 1000) }) })));
+
+  // ── 배포판 ────────────────────────────────────────────────────────────────
+  // 소스 빌드 산출물 + 받는 쪽 DB 를 맞추는 DDL 을 한 덩이로 묶는다. 기준 스냅샷은 사람이 올리거나 직전 배포판 것을 쓴다.
+  const rel = () => { if (!releases) throw new HttpError(503, '배포판 기능을 쓸 수 없습니다'); return releases; };
+  app.get('/admin/releases/:project', admin, wrap(async (req) => {
+    const p = proj(req);
+    const st = await rel().state(p.name);
+    return {
+      releases: await rel().list(p.name),
+      baseline: st.baseline || null,
+      recipe: rel().recipe(p),
+      lane: runner.laneState().release || null,
+      versions: versions ? (await versions.list(p.name)).map((v) => ({ n: v.n, sha: v.sha, summary: v.summary, reportId: v.reportId, createdAt: v.createdAt })) : [],
+    };
+  }));
+  // 받는 쪽 DB 에서 돌릴 스냅샷 SQL - 결과를 baseline 으로 올리면 DDL 이 그 DB 기준으로 좁혀진다
+  app.get('/admin/releases/:project/snapshot-sql', admin, wrap(async (req, res) => {
+    res.setHeader('Content-Disposition', 'attachment; filename="devloop-schema-snapshot.sql"');
+    res.type('text/plain; charset=utf-8').send(rel().snapshotSqlFor(proj(req)));
+  }));
+  app.put('/admin/releases/:project/baseline', admin, wrap(async (req) => rel().saveBaseline(proj(req), req.body?.snapshot ?? req.body, req.body?.source || 'upload')));
+  app.delete('/admin/releases/:project/baseline', admin, wrap(async (req) => {
+    const p = proj(req);
+    await fs.promises.rm(rel().baselineFile(p.name), { force: true });
+    await rel().save(p.name, { baseline: null });
+    return { ok: true };
+  }));
+  app.post('/admin/releases/:project', admin, wrap(async (req) => rel().start(proj(req), { n: req.body?.n, label: req.body?.label, note: req.body?.note })));
+  app.delete('/admin/releases/:project/:id', admin, wrap(async (req) => { await rel().remove(proj(req), req.params.id); return { ok: true }; }));
+  app.get('/admin/releases/:project/:id/download', admin, wrap(async (req, res) => {
+    const p = await rel().fileOf(proj(req), req.params.id, null);
+    res.download(p, `${proj(req).name}-${req.params.id}.tar.gz`);
+  }));
+  // 묶음 안의 파일 하나 보기 (콘솔에서 DDL 을 바로 읽게)
+  app.get('/admin/releases/:project/:id/file', admin, wrap(async (req, res) => {
+    const p = await rel().fileOf(proj(req), req.params.id, String(req.query.path || ''));
+    res.type('text/plain; charset=utf-8').send(await fs.promises.readFile(p, 'utf8'));
+  }));
   app.post('/admin/knowledge/:project', admin, wrap(async (req) => { if (!knowledge) throw new HttpError(503, '지식 그래프 기능이 꺼져 있습니다'); await knowledge.enqueue(proj(req), { mode: req.body?.mode === 'full' ? 'full' : 'update', reason: '콘솔' }); return knowledge.summary(proj(req).name); }));
 
   // 제안 삭제 - 목록에서 빼고 제목을 '무시' 목록에 남겨 다음 분석에서 같은 것을 다시 내지 않게

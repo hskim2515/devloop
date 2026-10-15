@@ -5,8 +5,15 @@
  *   translateTree(root, lang): root 아래를 번역하고 MutationObserver 로 새로 생기는 글자도 계속 번역
  */
 export const KO_EN = {
+  // 배포판
+  '기준 스냅샷 (받는 쪽 DB)': 'Baseline snapshot (target DB)', '스냅샷 SQL 받기': 'Download snapshot SQL', '기준 스냅샷 올리기': 'Upload baseline snapshot',
+  '배포판 만들기': 'Build release', '기준 브랜치 최신': 'Latest on base branch', '내려받기': 'Download', '적용 DDL': 'Apply DDL', '확인 필요': 'Needs review', '노트': 'Notes',
+  '아직 배포판이 없습니다': 'No releases yet', '지우기': 'Clear', '묶는 중': 'packaging', '준비됨': 'ready', '대기': 'queued', '실패': 'failed',
+  '이름 (선택: 2026-10 1차 납품)': 'Name (optional)', '릴리스 노트에 넣을 메모 (선택)': 'Note for the release notes (optional)',
+  '어느 버전으로 묶을까요': 'Which version to package', '올린 스냅샷': 'uploaded snapshot', '직전 배포판': 'previous release', '없음(전체)': 'none (full schema)',
+  '적용': 'apply', '확인': 'review', '기준:': 'baseline:',
   // ── 콘솔 공통 ──
-  '리포트': 'Reports', '제안': 'Insights', '버전': 'Versions', '루프': 'Loops', '지식': 'Knowledge', '프로젝트': 'Project', '키·계정': 'Keys', '서버': 'Server', '점검': 'Checks', '로그': 'Logs',
+  '리포트': 'Reports', '제안': 'Insights', '버전': 'Versions', '배포판': 'Release', '루프': 'Loops', '지식': 'Knowledge', '프로젝트': 'Project', '키·계정': 'Keys', '서버': 'Server', '점검': 'Checks', '로그': 'Logs',
   '관리': 'Console', 'devloop 관리': 'devloop console', '키 지우기': 'Clear key', '저장된 운영자 키 지우기': 'Forget the saved admin key', '운영자 키': 'Admin key', '들어가기': 'Enter',
   '⏳ 잠시만요': '⏳ One moment', '입력한 키는 그대로 둡니다. 계속 이 화면이면 앱 로그의 [devloop] 줄이나 콘솔 \'점검\' 탭을 보세요.': 'Your key is kept. If this stays, check the app log lines tagged [devloop] or the Checks tab.',
   '워커가 시작 중입니다 (앱 재배포 직후 10초~1분)': 'The worker is starting (10 s to 1 min after a redeploy)', '앱이 재시작 중입니다': 'The app is restarting', '운영자 키가 맞지 않습니다': 'Wrong admin key',

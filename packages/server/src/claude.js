@@ -49,6 +49,7 @@ export async function runClaudeStream(ex, cwd, timeoutMin, args, onProgress) {
   let result = null;
   let last = '';
   const rl = readline.createInterface({ input: child.stdout });
+  child.stderr.setEncoding('utf8');            // 청크 경계에 걸친 멀티바이트 문자가 깨지지 않게
   child.stderr.on('data', (d) => { if (raw.length < 200_000) raw += d; });
   rl.on('line', (line) => {
     if (raw.length < 200_000) raw += line + '\n';

@@ -92,7 +92,7 @@
   .p-READY { background: #1f3a3a; color: #8ee0d0; } .p-REVERTED { background: #3b2a3a; color: #e0a0d0; } .p-MERGED { background: #1e3a2a; color: var(--ok); } .p-FAILED { background: #43232a; color: var(--bad); } .p-NONE { background: #2b3242; color: #9aa6b8; }
   .sev-CRITICAL { color: #ff6b7a; } .sev-HIGH { color: #ffb27a; } .sev-MEDIUM { color: var(--warn); } .sev-LOW { color: var(--ok); }
   .dim { color: var(--dim); font-size: 11px; }
-  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
   .empty { padding: 30px; text-align: center; color: var(--dim); }
   #login { max-width: 420px; margin: 80px auto; }
   .err { color: var(--bad); font-size: 12px; margin-top: 8px; }
@@ -217,6 +217,7 @@
     <button data-t="reports" class="on">리포트</button>
     <button data-t="insights">제안</button>
     <button data-t="versions">버전</button>
+    <button data-t="releases">배포판</button>
     <button data-t="roadmap">로드맵</button>
     <button data-t="features">기능</button>
     <button data-t="loops">루프</button>
@@ -305,6 +306,35 @@
       <div class="empty" id="vEmpty" hidden>아직 버전이 없습니다 - AI 수정이 끝나면 여기에 쌓입니다</div>
       <details class="card" id="vLogWrap" hidden style="margin-top:12px"><summary class="dim" id="vLogHead">진행 로그</summary><pre class="log" id="vLog"></pre></details>
       <div class="card" id="vDiff" hidden style="margin-top:12px"><div class="toolbar"><b id="vDiffHead"></b><button class="btn" id="vDiffClose">닫기</button></div><pre class="log tall" id="vDiffBody"></pre></div>
+    </div>
+
+    <!-- 배포판: 빌드 산출물 + 받는 쪽 DB 를 맞추는 DDL 을 한 덩이로 -->
+    <div data-tab="releases" hidden>
+      <div class="intro"><b>배포판</b>은 어느 버전의 소스를 받는 쪽에 그대로 넘길 수 있게 묶은 한 덩이입니다 — 프론트 빌드 결과·백엔드 실행 파일·릴리스 노트에 <b>DB 스키마를 맞추는 DDL</b> 까지. git 은 소스를 추적하지만 DB 스키마는 아무도 추적하지 않아, 받는 쪽에 테이블·열이 없어 배포 직후 깨지는 일을 막습니다. 빌드 방법은 <b>버전 탭의 미리보기 레시피</b>를 그대로 씁니다.</div>
+
+      <div class="card" style="margin-bottom:12px">
+        <div class="toolbar"><b>기준 스냅샷 (받는 쪽 DB)</b> <span class="dim" id="relBaseState"></span></div>
+        <div class="dim" style="margin:6px 0">DDL 은 <b>받는 쪽에 없는 것만</b> 담습니다. 그러려면 받는 쪽 DB 의 스키마를 한 번 알려줘야 합니다 — 아래 SQL 을 받아 그 DB 에 돌리고(읽기만 합니다) 나온 파일을 올리세요. 올리지 않으면 직전 배포판의 스냅샷을 쓰고, 그것도 없으면 전체 스키마를 만드는 DDL 이 나옵니다.</div>
+        <div class="actions">
+          <button class="btn" id="relSnapSql">스냅샷 SQL 받기</button>
+          <input type="file" id="relBaseFile" accept=".json,application/json" style="flex:1;min-width:200px">
+          <button class="btn primary" id="relBaseUp">기준 스냅샷 올리기</button>
+          <button class="btn danger" id="relBaseDel">지우기</button>
+          <span class="msg" id="relBaseMsg"></span>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <select id="relVersion" title="어느 버전으로 묶을까요"><option value="">기준 브랜치 최신</option></select>
+        <input id="relLabel" placeholder="이름 (선택: 2026-10 1차 납품)" style="min-width:200px">
+        <input id="relNote" placeholder="릴리스 노트에 넣을 메모 (선택)" style="flex:1;min-width:200px">
+        <button class="btn primary" id="relMake">배포판 만들기</button>
+        <span class="msg" id="relMsg"></span>
+      </div>
+      <table id="relTable"><thead><tr><th style="width:90px">배포판</th><th>내용</th><th style="width:170px">DB</th><th style="width:250px"></th></tr></thead><tbody id="relRows"></tbody></table>
+      <div class="empty" id="relEmpty" hidden>아직 배포판이 없습니다</div>
+      <details class="card" id="relLogWrap" hidden style="margin-top:12px"><summary class="dim" id="relLogHead">진행 로그</summary><pre class="log" id="relLog"></pre></details>
+      <div class="card" id="relFile" hidden style="margin-top:12px"><div class="toolbar"><b id="relFileHead"></b><button class="btn" id="relFileClose">닫기</button></div><pre class="log tall" id="relFileBody"></pre></div>
     </div>
 
     <!-- 루프 -->
@@ -928,6 +958,84 @@
     const op = e.target.closest('[data-open]'); if (op && kit) { e.preventDefault(); kit.setProject(vProject); kit.openViewer(Number(op.dataset.open)); return; }
   });
 
+  // ── 배포판 ──
+  let relTimer = null, relProject = null;
+  const relPill = { QUEUED: 'p-RUNNING', BUILDING: 'p-RUNNING', DONE: 'p-MERGED', FAILED: 'p-FAILED' };
+  const relLabel = { QUEUED: '대기', BUILDING: '묶는 중', DONE: '준비됨', FAILED: '실패' };
+  const mb = (n) => (n > 0 ? `${(n / 1048576).toFixed(1)} MB` : '');
+
+  /** 헤더에 운영자 키를 실어 파일을 받는다 (a[href] 는 헤더를 못 보낸다) */
+  async function relDownload(path, filename) {
+    const r = await fetch(`${API}${path}`, { headers: H() });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || `HTTP ${r.status}`);
+    const u = URL.createObjectURL(await r.blob());
+    const a = document.createElement('a'); a.href = u; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(u), 10_000);
+  }
+
+  async function loadReleases() {
+    relProject = versionProject(); if (!relProject) return;
+    let r; try { r = await api('GET', `/admin/releases/${relProject}`); } catch (e) { $('#relEmpty').hidden = false; $('#relEmpty').textContent = e.message; return; }
+    const b = r.baseline;
+    $('#relBaseState').innerHTML = b
+      ? `· <b>${esc(b.database || '?')}</b> 테이블 ${b.tables}개 · ${esc(String(b.server || '').split(' ')[0])} · ${ago(b.savedAt)} 올림${b.takenAt ? ` (뜬 시각 ${esc(b.takenAt)})` : ''}`
+      : '· 없음 — 직전 배포판의 스냅샷을 쓰거나, 그것도 없으면 전체 스키마를 냅니다';
+    if (!r.recipe?.preview) $('#relMsg').textContent = '빌드 레시피가 없습니다 - 버전 탭에서 미리보기 레시피를 먼저 만드세요';
+    $('#relMake').disabled = !r.recipe?.preview;
+    const sel = $('#relVersion');
+    if (document.activeElement !== sel) {
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">기준 브랜치 최신</option>' + (r.versions || []).map((v) => `<option value="${v.n}">v${v.n} — ${esc(String(v.summary || '').slice(0, 60))}</option>`).join('');
+      sel.value = cur;
+    }
+    const rs = r.releases || [];
+    $('#relEmpty').hidden = rs.length > 0;
+    $('#relRows').innerHTML = rs.map((x) => {
+      const st = x.status, busy = ['QUEUED', 'BUILDING'].includes(st);
+      const d = x.db;
+      return `<tr data-rel="${esc(x.id)}">
+      <td><b>${esc(x.id)}</b> <span class="pill ${relPill[st] || 'p-NONE'}">${relLabel[st] || st}</span><div class="dim">${ago(x.createdAt)}${x.seconds ? ` · ${x.seconds}초` : ''}</div></td>
+      <td><div>${esc(x.label || '(이름 없음)')}</div><div class="dim">${x.version != null ? `버전 v${x.version} · ` : ''}${esc(String(x.sha || '').slice(0, 8))} · ${esc(x.base || '')}${x.sizeBytes ? ` · ${mb(x.sizeBytes)} · 파일 ${x.fileCount}개` : ''}${x.pruned ? ' · <b>빌드 산출물 정리됨</b>(DDL·노트는 남아 있음)' : ''}</div>${x.error ? `<div class="bad" style="font-size:11px">${esc(x.error)}</div>` : ''}${(d?.unapplied || []).length ? `<div class="warn" style="font-size:11px">저장소 DDL 파일 ${d.unapplied.length}개가 받는 쪽에 안 들어가 있습니다</div>` : ''}</td>
+      <td>${d ? `적용 <b>${d.safeCount}</b> · 확인 <b>${d.reviewCount}</b><div class="dim" style="font-size:11px">기준: ${esc(d.baselineKind === 'upload' ? '올린 스냅샷' : d.baselineKind === 'previous' ? '직전 배포판' : '없음(전체)')}</div>` : '<span class="dim">없음</span>'}</td>
+      <td>${busy ? '<span class="dim">진행 로그 아래</span>' : ''}
+        ${st === 'DONE' && !x.pruned ? `<button class="btn primary" data-reldl="${esc(x.id)}">내려받기</button>` : ''}
+        ${st === 'DONE' && d ? `<button class="btn" data-relf="${esc(x.id)}" data-path="db/01-적용.sql">적용 DDL</button>` : ''}
+        ${st === 'DONE' && d?.reviewCount ? `<button class="btn" data-relf="${esc(x.id)}" data-path="db/02-확인필요.sql">확인 필요</button>` : ''}
+        ${st === 'DONE' ? `<button class="btn" data-relf="${esc(x.id)}" data-path="RELEASE.md">노트</button>` : ''}
+        <button class="btn" data-rellog="${esc(x.id)}">로그</button>
+        <button class="btn danger" data-reldel="${esc(x.id)}">삭제</button></td></tr>`;
+    }).join('');
+    const busyAny = rs.some((x) => ['QUEUED', 'BUILDING'].includes(x.status));
+    if (busyAny) showRelLog(rs.find((x) => ['QUEUED', 'BUILDING'].includes(x.status)));
+    else if (!$('#relLogWrap').hidden && $('#relLogWrap').dataset.r) { const cur = rs.find((x) => x.id === $('#relLogWrap').dataset.r); if (cur) showRelLog(cur, false); }
+    clearInterval(relTimer); if (busyAny) relTimer = setInterval(loadReleases, 4000);
+  }
+  function showRelLog(x, open = true) { $('#relLogWrap').hidden = false; $('#relLogWrap').dataset.r = x.id; if (open) $('#relLogWrap').open = true; $('#relLogHead').textContent = `${x.id} 진행 로그 (${relLabel[x.status] || x.status})`; setLog($('#relLog'), x.log || '(없음)'); $('#relLog').scrollTop = $('#relLog').scrollHeight; }
+
+  document.addEventListener('click', async (e) => {
+    if (e.target.closest('#relSnapSql')) { try { await relDownload(`/admin/releases/${relProject}/snapshot-sql`, 'devloop-schema-snapshot.sql'); $('#relBaseMsg').textContent = '받는 쪽 DB 에 psql -At -f 로 돌리고 나온 파일을 올리세요'; } catch (x) { $('#relBaseMsg').textContent = x.message; } return; }
+    if (e.target.closest('#relBaseUp')) {
+      const f = $('#relBaseFile').files?.[0];
+      if (!f) { $('#relBaseMsg').textContent = '올릴 파일을 고르세요'; return; }
+      $('#relBaseMsg').textContent = '읽는 중…';
+      try { const meta = await api('PUT', `/admin/releases/${relProject}/baseline`, { snapshot: JSON.parse(await f.text()), source: `upload:${f.name}` }); $('#relBaseMsg').textContent = `✓ ${meta.database} 테이블 ${meta.tables}개 · 열 ${meta.columns}개`; $('#relBaseFile').value = ''; await loadReleases(); }
+      catch (x) { $('#relBaseMsg').textContent = `✗ ${x.message}`; }
+      return;
+    }
+    if (e.target.closest('#relBaseDel')) { if (!confirm('기준 스냅샷을 지울까요? 다음 배포판은 직전 배포판의 스냅샷(없으면 전체 스키마)을 기준으로 삼습니다')) return; try { await api('DELETE', `/admin/releases/${relProject}/baseline`); $('#relBaseMsg').textContent = '지웠습니다'; await loadReleases(); } catch (x) { $('#relBaseMsg').textContent = x.message; } return; }
+    if (e.target.closest('#relMake')) {
+      const btn = e.target.closest('#relMake'); btn.disabled = true; $('#relMsg').textContent = '등록 중…';
+      try { await api('POST', `/admin/releases/${relProject}`, { n: $('#relVersion').value || null, label: $('#relLabel').value, note: $('#relNote').value }); $('#relMsg').textContent = '묶는 중입니다 (프론트·백엔드 빌드에 몇 분)'; $('#relLabel').value = ''; $('#relNote').value = ''; await loadReleases(); }
+      catch (x) { $('#relMsg').textContent = x.message; } finally { btn.disabled = false; }
+      return;
+    }
+    if (e.target.closest('#relFileClose')) { $('#relFile').hidden = true; return; }
+    const dl = e.target.closest('[data-reldl]'); if (dl) { dl.disabled = true; $('#relMsg').textContent = '내려받는 중…'; try { await relDownload(`/admin/releases/${relProject}/${dl.dataset.reldl}/download`, `${relProject}-${dl.dataset.reldl}.tar.gz`); $('#relMsg').textContent = ''; } catch (x) { $('#relMsg').textContent = x.message; } finally { dl.disabled = false; } return; }
+    const rf = e.target.closest('[data-relf]'); if (rf) { try { const t = await api('GET', `/admin/releases/${relProject}/${rf.dataset.relf}/file?path=${encodeURIComponent(rf.dataset.path)}`); $('#relFile').hidden = false; $('#relFileHead').textContent = `${rf.dataset.relf} / ${rf.dataset.path}`; $('#relFileBody').textContent = t; $('#relFile').scrollIntoView({ behavior: 'smooth' }); } catch (x) { alert(x.message); } return; }
+    const rl = e.target.closest('[data-rellog]'); if (rl) { try { const r = await api('GET', `/admin/releases/${relProject}`); const x = (r.releases || []).find((y) => y.id === rl.dataset.rellog); if (x) showRelLog(x); } catch (x) { alert(x.message); } return; }
+    const rd = e.target.closest('[data-reldel]'); if (rd) { if (!confirm(`${rd.dataset.reldel} 을 지울까요? 묶음 파일과 그 안의 스냅샷도 함께 지웁니다 (다음 배포판의 기준이 그만큼 뒤로 갑니다)`)) return; try { await api('DELETE', `/admin/releases/${relProject}/${rd.dataset.reldel}`); await loadReleases(); } catch (x) { alert(x.message); } return; }
+  });
+
   // ── 알림 ──
   let notifyEvents = null;
   const NOTIFY_DEFAULT = ['report.new', 'fix.pr', 'fix.merged', 'fix.failed', 'fix.reverted', 'preview.up', 'deploy.failed', 'loop.done', 'loop.failed'];
@@ -1363,7 +1471,7 @@
   // ── 이벤트 ──
   document.addEventListener('click', async (e) => {
     const go = e.target.closest('[data-go]'); if (go) { e.preventDefault(); document.querySelector(`#tabs button[data-t="${go.dataset.go}"]`)?.click(); return; }
-    const t = e.target.closest('#tabs button'); if (t) { tab = t.dataset.t; document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b === t)); document.querySelectorAll('[data-tab]').forEach((d) => { d.hidden = d.dataset.tab !== tab; }); if (['projects', 'secrets', 'server', 'checks'].includes(tab)) loadSettings().catch((x) => alert(x.message)); if (tab === 'logs') loadLogs(); if (tab === 'insights') loadInsights(); if (tab === 'knowledge') loadKnowledge(); if (tab === 'versions') loadVersions(); if (tab === 'loops') loadLoops(); if (tab === 'features') loadFeatures(); if (tab === 'roadmap') loadRoadmap(); if (tab === 'dashboard') loadDashboard(); return; }
+    const t = e.target.closest('#tabs button'); if (t) { tab = t.dataset.t; document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b === t)); document.querySelectorAll('[data-tab]').forEach((d) => { d.hidden = d.dataset.tab !== tab; }); if (['projects', 'secrets', 'server', 'checks'].includes(tab)) loadSettings().catch((x) => alert(x.message)); if (tab === 'logs') loadLogs(); if (tab === 'insights') loadInsights(); if (tab === 'knowledge') loadKnowledge(); if (tab === 'versions') loadVersions(); if (tab === 'releases') loadReleases(); if (tab === 'loops') loadLoops(); if (tab === 'features') loadFeatures(); if (tab === 'roadmap') loadRoadmap(); if (tab === 'dashboard') loadDashboard(); return; }
     const sh = e.target.closest('.shots figure'); if (sh) { const img = sh.querySelector('img'); if (img) { const big = document.createElement('div'); big.className = 'shotbig'; big.innerHTML = `<img src="${img.src}"><div class="dim">${esc(sh.dataset.shot)} (눌러서 닫기)</div>`; big.onclick = () => big.remove(); document.body.appendChild(big); } return; }
     const sb = e.target.closest('.shotbig'); if (sb) { sb.remove(); return; }
     const ir = e.target.closest('[data-ireport],[data-ifix]'); if (ir) { const fix = ir.hasAttribute('data-ifix'); const id = Number(ir.dataset.ireport || ir.dataset.ifix); if (fix && !confirm('이 제안으로 리포트를 만들고 바로 AI 수정을 시작할까요? (Claude 비용 발생)')) return; const bs = ir.parentElement.querySelectorAll('[data-ireport],[data-ifix]'); bs.forEach((b) => { b.disabled = true; }); const iProject = ir.closest('tr')?.dataset.ip; try { await api('POST', `/admin/insights/${iProject}/report`, { id, fix, reporter: 'admin' }); await loadInsights(); if (fix) { data = null; await load(); } } catch (x) { alert(x.message); } finally { bs.forEach((b) => { b.disabled = false; }); } return; }
