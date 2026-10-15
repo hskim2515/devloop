@@ -1,6 +1,6 @@
 {
   "name": "@devloop/webpack",
-  "version": "0.2.15",
+  "version": "0.2.16",
   "private": true,
   "description": "devloop webpack 플러그인(Vue CLI·CRA) - SDK 자동 마운트·/devloop 안내 페이지",
   "main": "index.js",

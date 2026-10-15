@@ -1,6 +1,6 @@
 {
   "name": "@devloop/server",
-  "version": "0.2.15",
+  "version": "0.2.16",
   "description": "버그 리포트 저장 + Claude Code 자동 수정 파이프라인 서비스 (프로젝트 여러 개를 설정 파일로 담당)",
   "type": "module",
   "bin": {

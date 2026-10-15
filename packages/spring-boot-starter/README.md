@@ -9,7 +9,7 @@ Spring 앱은 JS 를 못 돌리므로 "앱 내장" 대신, **의존성 한 줄**
 
 ```groovy
 repositories { maven { url 'https://jitpack.io' } }
-dependencies { implementation 'com.github.hskim2515:devloop:v0.2.15' }
+dependencies { implementation 'com.github.hskim2515:devloop:v0.2.16' }
 ```
 
 ```properties

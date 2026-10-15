@@ -6,6 +6,9 @@
  */
 export const KO_EN = {
   // 배포판
+  '어느 소스로 묶나': 'Which source to package', '병합 안 된 소스도 허용': 'Allow unmerged source',
+  '기준 브랜치 최신 (권장 - 모든 작업 포함)': 'Latest on base branch (recommended - includes all work)',
+  '최신과 같음': 'same as latest', '에 병합되지 않은 소스': 'source not merged into',
   '기준 스냅샷 (받는 쪽 DB)': 'Baseline snapshot (target DB)', '스냅샷 SQL 받기': 'Download snapshot SQL', '기준 스냅샷 올리기': 'Upload baseline snapshot',
   '배포판 만들기': 'Build release', '기준 브랜치 최신': 'Latest on base branch', '내려받기': 'Download', '적용 DDL': 'Apply DDL', '확인 필요': 'Needs review', '노트': 'Notes',
   '아직 배포판이 없습니다': 'No releases yet', '지우기': 'Clear', '묶는 중': 'packaging', '준비됨': 'ready', '대기': 'queued', '실패': 'failed',
