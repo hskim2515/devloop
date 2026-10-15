@@ -1,6 +1,6 @@
 {
   "name": "@devloop/client",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "description": "브라우저 SDK - 콘솔·네트워크·상태 변화·화면을 모아 버그 리포트를 보내고, Claude 자동 수정 진행을 보는 UI (Web Component)",
   "type": "module",
   "main": "dist/devloop-client.js",

@@ -55,7 +55,7 @@ app.use('/devloop', devloopKit());          // 신고 API · 콘솔(/devloop/ui/
 ```
 package.json 한 줄 + 이 한 줄. 프로젝트 이름·저장소·브랜치·검증 명령은 package.json 과 git remote 에서 알아서 읽고, 설정은 `.devloop-data/`(gitignore) 에 둔다.
 그 기계에 git·Claude Code CLI(로그인)·빌드 도구가 있으면 된다. 저장소 토큰은 `DEVLOOP_GITHUB_TOKEN` / `GITLAB_TOKEN` 환경변수. 프론트는 아래 ③ 의 플러그인 한 줄(endpoint 는 `/devloop`).
-Spring 백엔드는 **스타터 한 줄**: `implementation 'com.github.hskim2515:devloop:v0.2.14'` (JitPack). 최근 로그 끝점·`/devloop/**` 프록시·보안 허용이 자동으로 붙고, 그 호스트에 Node 가 있으면 devloop 워커까지 앱과 같이 띄운다([spring-boot-starter](packages/spring-boot-starter)). Node 가 없는 컨테이너 배포는 `devloop.server` 로 ①② 의 인스턴스를 가리킨다.
+Spring 백엔드는 **스타터 한 줄**: `implementation 'com.github.hskim2515:devloop:v0.2.15'` (JitPack). 최근 로그 끝점·`/devloop/**` 프록시·보안 허용이 자동으로 붙고, 그 호스트에 Node 가 있으면 devloop 워커까지 앱과 같이 띄운다([spring-boot-starter](packages/spring-boot-starter)). Node 가 없는 컨테이너 배포는 `devloop.server` 로 ①② 의 인스턴스를 가리킨다.
 
 ### ① 서버 켜기 — **앱 하나에 인스턴스 하나**
 

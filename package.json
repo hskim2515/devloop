@@ -36,7 +36,7 @@
     "./webpack/bootstrap.js": "./packages/webpack/bootstrap.js",
     "./embed": "./packages/server/src/embed.js"
   },
-  "version": "0.2.14",
+  "version": "0.2.15",
   "bin": {
     "front-check": "packages/front-check/bin/front-check.mjs",
     "devloop-adapter": "./packages/adapters/bin/devloop-adapter.mjs"

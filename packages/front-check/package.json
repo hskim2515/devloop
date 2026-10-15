@@ -1,6 +1,6 @@
 {
   "name": "@devloop/front-check",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "description": "헤드리스 브라우저로 프론트 화면을 열어 콘솔 오류·실패 요청·스크린샷·DOM 치수를 확인하는 CLI (Claude 스킬 포함)",
   "type": "module",
   "bin": {

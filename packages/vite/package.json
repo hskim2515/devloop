@@ -1,6 +1,6 @@
 {
   "name": "@devloop/vite",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "private": true,
   "type": "module",
   "description": "devloop Vite 플러그인 - 플러그인 한 줄로 SDK 자동 마운트·개발 프록시·/devloop 안내 페이지",
